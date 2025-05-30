@@ -30,12 +30,38 @@ document.addEventListener('DOMContentLoaded', function() {
     const attachmentName = document.getElementById('attachment-name');
     const removeAttachment = document.getElementById('remove-attachment');
     
+    // DOM Elements - Screenshot UI
+    const screenshotButton = document.getElementById('screenshot-button');
+    const screenshotPreview = document.getElementById('screenshot-preview');
+    const screenshotThumbnail = document.getElementById('screenshot-thumbnail');
+    const removeScreenshot = document.getElementById('remove-screenshot');
+    const fullScreenshotModal = document.getElementById('full-screenshot-modal');
+    const closeScreenshotModal = document.getElementById('close-screenshot-modal');
+    const captureVisibleArea = document.getElementById('capture-visible-area');
+    const captureFullPage = document.getElementById('capture-full-page');
+    
+    // DOM Elements - Screen Capture UI
+    const screenCaptureButton = document.getElementById('screen-capture-button');
+    const screenCaptureModal = document.getElementById('screen-capture-modal');
+    const closeScreenCaptureModal = document.getElementById('close-screen-capture-modal');
+    const startScreenCapture = document.getElementById('start-screen-capture');
+    const captureScreenshot = document.getElementById('capture-screenshot');
+    const stopScreenCapture = document.getElementById('stop-screen-capture');
+    const sendScreenCapture = document.getElementById('send-screen-capture');
+    const screenPreview = document.getElementById('screen-preview');
+    const screenCanvas = document.getElementById('screen-canvas');
+    const screenCapturePlaceholder = document.getElementById('screen-capture-placeholder');
+    const screenCaptureStatus = document.getElementById('screen-capture-status');
+    
     // State variables
     let conversations = [];
     let currentConversationId = generateId();
     let isRecording = false;
     let isPaused = false;
     let currentFile = null;
+    let currentScreenshot = null;
+    let screenStream = null;
+    let isScreenSharing = false;
     
     // Speech Recognition Setup
     let recognition = null;
@@ -144,6 +170,7 @@ document.addEventListener('DOMContentLoaded', function() {
             currentFile = e.target.files[0];
             attachmentName.textContent = currentFile.name;
             attachmentPreview.classList.remove('hidden');
+            updateSendButtonState();
         }
     });
     
@@ -152,6 +179,73 @@ document.addEventListener('DOMContentLoaded', function() {
         currentFile = null;
         fileInput.value = '';
         attachmentPreview.classList.add('hidden');
+        updateSendButtonState();
+    });
+    
+    // Screenshot button
+    screenshotButton.addEventListener('click', function() {
+        fullScreenshotModal.classList.remove('hidden');
+    });
+    
+    // Close screenshot modal
+    closeScreenshotModal.addEventListener('click', function() {
+        fullScreenshotModal.classList.add('hidden');
+    });
+    
+    // Capture visible area
+    captureVisibleArea.addEventListener('click', function() {
+        fullScreenshotModal.classList.add('hidden');
+        captureVisibleAreaScreenshot();
+    });
+    
+    // Capture full page
+    captureFullPage.addEventListener('click', function() {
+        fullScreenshotModal.classList.add('hidden');
+        captureFullPageScreenshot();
+    });
+    
+    // Remove screenshot
+    removeScreenshot.addEventListener('click', function() {
+        currentScreenshot = null;
+        screenshotPreview.classList.add('hidden');
+        updateSendButtonState();
+    });
+    
+    // Screen capture button
+    screenCaptureButton.addEventListener('click', function() {
+        screenCaptureModal.classList.remove('hidden');
+        resetScreenCaptureUI();
+    });
+    
+    // Close screen capture modal
+    closeScreenCaptureModal.addEventListener('click', function() {
+        closeScreenCaptureModalFunc();
+    });
+    
+    // Start screen capture
+    startScreenCapture.addEventListener('click', function() {
+        startScreenSharingCapture();
+    });
+    
+    // Capture screenshot from stream
+    captureScreenshot.addEventListener('click', function() {
+        captureScreenshotFromStream();
+    });
+    
+    // Stop screen capture
+    stopScreenCapture.addEventListener('click', function() {
+        stopScreenSharingCapture();
+    });
+    
+    // Send screen capture
+    sendScreenCapture.addEventListener('click', function() {
+        if (currentScreenshot) {
+            screenCaptureModal.classList.add('hidden');
+            addMessage('user', '', currentScreenshot);
+            processMessage('', currentScreenshot);
+            currentScreenshot = null;
+            resetScreenCaptureUI();
+        }
     });
     
     // Voice Recording Controls
@@ -257,13 +351,7 @@ document.addEventListener('DOMContentLoaded', function() {
     messageInput.addEventListener('input', function() {
         this.style.height = 'auto';
         this.style.height = (this.scrollHeight) + 'px';
-        
-        // Enable/disable send button based on input
-        if (this.value.trim() !== '' || currentFile) {
-            sendButton.classList.remove('opacity-50');
-        } else {
-            sendButton.classList.add('opacity-50');
-        }
+        updateSendButtonState();
     });
     
     messageInput.addEventListener('keydown', function(e) {
@@ -272,6 +360,221 @@ document.addEventListener('DOMContentLoaded', function() {
             sendMessage();
         }
     });
+    
+    // Screenshot Functions
+    async function captureVisibleAreaScreenshot() {
+        try {
+            screenCaptureStatus.textContent = 'Capturing visible area...';
+            
+            // Use html2canvas to capture visible area
+            if (typeof html2canvas !== 'undefined') {
+                const canvas = await html2canvas(document.body, {
+                    height: window.innerHeight,
+                    width: window.innerWidth,
+                    scrollX: 0,
+                    scrollY: 0,
+                    useCORS: true,
+                    allowTaint: true
+                });
+                
+                canvas.toBlob(function(blob) {
+                    handleScreenshotCapture(blob, 'visible-area-screenshot.png');
+                }, 'image/png');
+            } else {
+                // Fallback: Use canvas with screen capture API
+                await fallbackScreenCapture();
+            }
+        } catch (error) {
+            console.error('Error capturing visible area:', error);
+            alert('Failed to capture visible area. Please try the screen share option.');
+        }
+    }
+    
+    async function captureFullPageScreenshot() {
+        try {
+            screenCaptureStatus.textContent = 'Capturing full page...';
+            
+            if (typeof html2canvas !== 'undefined') {
+                const canvas = await html2canvas(document.body, {
+                    height: document.body.scrollHeight,
+                    width: document.body.scrollWidth,
+                    useCORS: true,
+                    allowTaint: true
+                });
+                
+                canvas.toBlob(function(blob) {
+                    handleScreenshotCapture(blob, 'full-page-screenshot.png');
+                }, 'image/png');
+            } else {
+                // Fallback: Use canvas with screen capture API
+                await fallbackScreenCapture();
+            }
+        } catch (error) {
+            console.error('Error capturing full page:', error);
+            alert('Failed to capture full page. Please try the screen share option.');
+        }
+    }
+    
+    async function fallbackScreenCapture() {
+        try {
+            const stream = await navigator.mediaDevices.getDisplayMedia({
+                video: { mediaSource: 'screen' }
+            });
+            
+            const video = document.createElement('video');
+            video.srcObject = stream;
+            video.play();
+            
+            video.onloadedmetadata = () => {
+                const canvas = document.createElement('canvas');
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(video, 0, 0);
+                
+                canvas.toBlob(function(blob) {
+                    handleScreenshotCapture(blob, 'screen-capture.png');
+                }, 'image/png');
+                
+                // Stop the stream
+                stream.getTracks().forEach(track => track.stop());
+            };
+        } catch (error) {
+            console.error('Fallback screen capture failed:', error);
+            alert('Screen capture is not supported in your browser.');
+        }
+    }
+    
+    function handleScreenshotCapture(blob, filename) {
+        const file = new File([blob], filename, { type: 'image/png' });
+        currentScreenshot = file;
+        
+        // Create thumbnail for preview
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            screenshotThumbnail.src = e.target.result;
+            screenshotPreview.classList.remove('hidden');
+            updateSendButtonState();
+        };
+        reader.readAsDataURL(file);
+    }
+    
+    // Screen Sharing Functions
+    async function startScreenSharingCapture() {
+        try {
+            screenCaptureStatus.textContent = 'Starting screen share...';
+            
+            const stream = await navigator.mediaDevices.getDisplayMedia({
+                video: {
+                    mediaSource: 'screen',
+                    width: { ideal: 1920 },
+                    height: { ideal: 1080 }
+                },
+                audio: false
+            });
+            
+            screenStream = stream;
+            screenPreview.srcObject = stream;
+            screenPreview.classList.remove('hidden');
+            screenCapturePlaceholder.classList.add('hidden');
+            
+            // Update UI
+            startScreenCapture.classList.add('hidden');
+            captureScreenshot.classList.remove('hidden');
+            stopScreenCapture.classList.remove('hidden');
+            isScreenSharing = true;
+            
+            screenCaptureStatus.innerHTML = '<span class="text-green-500">●</span> Screen sharing active - Click capture to take screenshot';
+            
+            // Handle stream end
+            stream.getVideoTracks()[0].onended = () => {
+                stopScreenSharingCapture();
+            };
+            
+        } catch (error) {
+            console.error('Error starting screen capture:', error);
+            screenCaptureStatus.textContent = 'Failed to start screen share. Please try again.';
+            resetScreenCaptureUI();
+        }
+    }
+    
+    function captureScreenshotFromStream() {
+        if (!screenStream || !isScreenSharing) return;
+        
+        try {
+            const video = screenPreview;
+            const canvas = screenCanvas;
+            
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            canvas.classList.remove('hidden');
+            
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(video, 0, 0);
+            
+            // Hide video, show canvas
+            screenPreview.classList.add('hidden');
+            
+            canvas.toBlob(function(blob) {
+                const file = new File([blob], 'screen-capture.png', { type: 'image/png' });
+                currentScreenshot = file;
+                
+                // Update UI
+                sendScreenCapture.classList.remove('hidden');
+                sendScreenCapture.disabled = false;
+                captureScreenshot.disabled = true;
+                
+                screenCaptureStatus.innerHTML = '<span class="text-green-500">✓</span> Screenshot captured! You can send it now.';
+            }, 'image/png');
+            
+        } catch (error) {
+            console.error('Error capturing screenshot from stream:', error);
+            screenCaptureStatus.textContent = 'Failed to capture screenshot. Please try again.';
+        }
+    }
+    
+    function stopScreenSharingCapture() {
+        if (screenStream) {
+            screenStream.getTracks().forEach(track => track.stop());
+            screenStream = null;
+        }
+        
+        isScreenSharing = false;
+        resetScreenCaptureUI();
+    }
+    
+    function resetScreenCaptureUI() {
+        screenPreview.classList.add('hidden');
+        screenCanvas.classList.add('hidden');
+        screenCapturePlaceholder.classList.remove('hidden');
+        
+        startScreenCapture.classList.remove('hidden');
+        captureScreenshot.classList.add('hidden');
+        stopScreenCapture.classList.add('hidden');
+        sendScreenCapture.classList.add('hidden');
+        
+        captureScreenshot.disabled = false;
+        sendScreenCapture.disabled = true;
+        
+        screenCaptureStatus.textContent = 'Ready to capture screen';
+        currentScreenshot = null;
+    }
+    
+    function closeScreenCaptureModalFunc() {
+        screenCaptureModal.classList.add('hidden');
+        stopScreenSharingCapture();
+    }
+    
+    // Update send button state
+    function updateSendButtonState() {
+        const hasContent = messageInput.value.trim() !== '' || currentFile || currentScreenshot;
+        if (hasContent) {
+            sendButton.classList.remove('opacity-50');
+        } else {
+            sendButton.classList.add('opacity-50');
+        }
+    }
     
     // Initialize the chat
     function init() {
@@ -282,29 +585,41 @@ document.addEventListener('DOMContentLoaded', function() {
     // Function to send message
     function sendMessage() {
         const message = messageInput.value.trim();
-        if (message === '' && !currentFile) return;
+        if (message === '' && !currentFile && !currentScreenshot) return;
         
         // Add user message to chat
-        addMessage('user', message, currentFile);
+        addMessage('user', message, currentFile || currentScreenshot);
         
         // Clear input
         messageInput.value = '';
         messageInput.style.height = 'auto';
         sendButton.classList.add('opacity-50');
         
-        // Handle the file if any
+        // Handle the attachments
         let fileData = null;
         if (currentFile) {
             fileData = {
                 name: currentFile.name,
                 type: currentFile.type,
-                size: currentFile.size
+                size: currentFile.size,
+                isScreenshot: false
             };
             
             // Clear the attachment UI
             currentFile = null;
             fileInput.value = '';
             attachmentPreview.classList.add('hidden');
+        } else if (currentScreenshot) {
+            fileData = {
+                name: currentScreenshot.name,
+                type: currentScreenshot.type,
+                size: currentScreenshot.size,
+                isScreenshot: true
+            };
+            
+            // Clear the screenshot UI
+            currentScreenshot = null;
+            screenshotPreview.classList.add('hidden');
         }
         
         // Process the message
@@ -349,9 +664,9 @@ document.addEventListener('DOMContentLoaded', function() {
                     const firstUserMessage = message || '';
                     const title = firstUserMessage.length > 20 
                         ? firstUserMessage.substring(0, 20) + '...' 
-                        : firstUserMessage;
+                        : firstUserMessage || 'Screenshot Chat';
                     
-                    updateConversationTitle(currentConversationId, title || 'New Conversation');
+                    updateConversationTitle(currentConversationId, title);
                 }
                 
                 // If input was voice, use speech synthesis for response
@@ -387,18 +702,40 @@ document.addEventListener('DOMContentLoaded', function() {
             
             let attachmentHTML = '';
             if (attachment) {
-                attachmentHTML = `
-                    <div class="mt-2 flex items-center text-gray-500 text-sm">
-                        <i class="fas fa-paperclip mr-2"></i>
-                        <span>${escapeHtml(attachment.name || 'Attachment')}</span>
-                    </div>
-                `;
+                if (attachment.type && attachment.type.startsWith('image/')) {
+                    // Show image preview for screenshots and images
+                    const reader = new FileReader();
+                    reader.onload = function(e) {
+                        const imgElement = messageDiv.querySelector('.attachment-image');
+                        if (imgElement) {
+                            imgElement.src = e.target.result;
+                        }
+                    };
+                    reader.readAsDataURL(attachment);
+                    
+                    attachmentHTML = `
+                        <div class="mt-2 bg-gray-100 rounded-lg p-2 max-w-xs">
+                            <div class="flex items-center text-gray-500 text-sm mb-2">
+                                <i class="fas fa-${attachment.name.includes('screenshot') ? 'camera' : 'image'} mr-2"></i>
+                                <span>${escapeHtml(attachment.name || 'Image')}</span>
+                            </div>
+                            <img class="attachment-image max-w-full h-auto rounded" alt="Attachment preview">
+                        </div>
+                    `;
+                } else {
+                    attachmentHTML = `
+                        <div class="mt-2 flex items-center text-gray-500 text-sm">
+                            <i class="fas fa-paperclip mr-2"></i>
+                            <span>${escapeHtml(attachment.name || 'Attachment')}</span>
+                        </div>
+                    `;
+                }
             }
             
             messageContent = `
                 <div class="flex-1">
                     <div class="prose max-w-none">
-                        <p>${escapeHtml(message || '')}</p>
+                        ${message ? `<p>${escapeHtml(message)}</p>` : ''}
                     </div>
                     ${attachmentHTML}
                 </div>
@@ -802,22 +1139,59 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
     
-    // Handle Escape key for modal
+    // Handle Escape key for modals
     document.addEventListener('keydown', function(e) {
-        if (e.key === 'Escape' && !voiceModal.classList.contains('hidden')) {
-            closeVoiceModalFunc();
+        if (e.key === 'Escape') {
+            if (!voiceModal.classList.contains('hidden')) {
+                closeVoiceModalFunc();
+            }
+            if (!screenCaptureModal.classList.contains('hidden')) {
+                closeScreenCaptureModalFunc();
+            }
+            if (!fullScreenshotModal.classList.contains('hidden')) {
+                fullScreenshotModal.classList.add('hidden');
+            }
         }
     });
     
-    // Handle click outside of modal to close
+    // Handle click outside of modals to close
     voiceModal.addEventListener('click', function(e) {
         if (e.target === voiceModal) {
             closeVoiceModalFunc();
         }
     });
     
+    screenCaptureModal.addEventListener('click', function(e) {
+        if (e.target === screenCaptureModal) {
+            closeScreenCaptureModalFunc();
+        }
+    });
+    
+    fullScreenshotModal.addEventListener('click', function(e) {
+        if (e.target === fullScreenshotModal) {
+            fullScreenshotModal.classList.add('hidden');
+        }
+    });
+    
+    // Load html2canvas library for better screenshot support
+    function loadHtml2Canvas() {
+        if (typeof html2canvas === 'undefined') {
+            const script = document.createElement('script');
+            script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+            script.onload = function() {
+                console.log('html2canvas loaded successfully');
+            };
+            script.onerror = function() {
+                console.warn('Failed to load html2canvas, using fallback methods');
+            };
+            document.head.appendChild(script);
+        }
+    }
+    
     // Initialize the application
     loadConversations();
+    loadHtml2Canvas();
+    
     if (conversations.length === 0) {
         init();
     } else {
